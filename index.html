@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>مسابقة الأقرب</title>
+<style>
+:root{--bg:#1a0b2e;--panel:#2a1450;--gold:#f5c542;--txt:#fff;--mut:#b9a6d9;--ok:#3ddc97}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:radial-gradient(circle at top,#3a1a6e,var(--bg));color:var(--txt);font-family:Tahoma,'Segoe UI',Arial,sans-serif}
+.page{display:none;max-width:1100px;margin:0 auto;padding:20px}.page.on{display:block}
+.box{background:var(--panel);border:1px solid #4b2a8a;border-radius:16px;padding:20px}
+h1,h2{color:var(--gold);margin:0 0 12px}
+input{width:100%;padding:14px;border-radius:10px;border:1px solid #6b3fc0;background:#1a0b2e;color:#fff;font-size:18px}
+button{background:var(--gold);color:#2a1450;border:0;border-radius:12px;padding:14px 26px;font-size:18px;font-weight:700;cursor:pointer}
+button:disabled{opacity:.4;cursor:default}button.alt{background:#4b2a8a;color:#fff}
+.row{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap}
+#msg{margin-top:12px;min-height:24px}
+.top{display:flex;justify-content:space-between;align-items:center;color:var(--mut);margin-bottom:10px}
+.q{text-align:center;padding:24px 10px}
+.q .t{font-size:34px;font-weight:700}.q .u{color:var(--gold);font-size:22px;margin-top:8px}
+.timer{font-size:84px;font-weight:800;color:var(--gold);text-align:center;line-height:1}
+.stats{display:flex;justify-content:center;gap:30px;color:var(--mut);margin:10px 0}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;max-height:300px;overflow:auto;margin-top:12px;padding:4px}
+.card{background:#1a0b2e;border:1px solid #4b2a8a;border-radius:12px;padding:10px;text-align:center}
+.card img,.rk img{width:48px;height:48px;border-radius:50%;object-fit:cover}
+.card b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card small{color:var(--ok);display:block}.card .v{font-size:22px;color:var(--gold);font-weight:700}.card .d{color:var(--mut);font-size:13px}
+.win{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:12px}
+.win .card{min-width:170px;border-color:var(--gold)}
+.ans{text-align:center;font-size:28px;color:var(--ok);margin-top:10px}
+.rk{display:flex;align-items:center;gap:12px;padding:8px 12px;border-bottom:1px solid #4b2a8a}
+.rk .n{width:32px;color:var(--gold);font-weight:700}.rk .nm{flex:1}.rk .pt{color:var(--gold);font-weight:700}.rk .w{color:var(--mut);min-width:110px}
+</style>
+</head>
+<body>
+<section id="p-connect" class="page on"><div class="box" style="max-width:520px;margin:12vh auto 0">
+  <h1>🎯 مسابقة الأقرب</h1>
+  <input id="user" placeholder="اسم مستخدم صاحب البث (بدون @)">
+  <div class="row"><button id="btnConnect">اتصال</button><button class="alt" id="btnDemo">تجربة بدون اتصال</button></div>
+  <div id="msg"></div>
+</div></section>
+
+<section id="p-play" class="page">
+  <div class="top"><span id="round"></span><span>● LIVE QUIZ</span></div>
+  <div class="box">
+    <div class="q"><div class="t" id="qt"></div><div class="u" id="qu"></div></div>
+    <div class="timer" id="timer">15</div>
+    <div class="stats"><span>اللاعبون: <b id="np">0</b></span><span>الإجابات: <b id="na">0</b></span></div>
+    <div class="stats">أرسل إجابتك رقماً فقط في التعليقات!</div>
+    <div id="rev"></div>
+    <div class="grid" id="grid"></div>
+    <div class="row" style="justify-content:center"><button id="btnNext"></button></div>
+  </div>
+</section>
+
+<section id="p-final" class="page"><div class="box">
+  <h2>🏆 النتائج النهائية</h2><div id="sub" style="color:var(--mut);margin-bottom:10px"></div>
+  <div id="rank"></div>
+  <div class="row"><button id="btnCsv">حفظ النتائج (CSV)</button><button class="alt" id="btnNew">مسابقة جديدة</button></div>
+</div></section>
+
+<script>
+const $=id=>document.getElementById(id);
+const DEF='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><circle cx="24" cy="24" r="24" fill="#4b2a8a"/><circle cx="24" cy="19" r="8" fill="#b9a6d9"/><path d="M8 42c2-10 30-10 32 0z" fill="#b9a6d9"/></svg>');
+const fmt=n=>Number(n).toLocaleString('en-US',{maximumFractionDigits:4});
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const ws=new WebSocket(`ws://${location.host}`);
+const send=o=>ws.readyState===1&&ws.send(JSON.stringify(o));
+let S=null,endLocal=0,tick=null;
+
+const img=(id,src)=>`<img data-av="${esc(id)}" src="${esc(src||DEF)}" onerror="this.onerror=null;this.src=DEF">`;
+const cardHtml=(c,extra='')=>`<div class="card" data-id="${esc(c.id)}">${img(c.id,c.avatar)}<b>${esc(c.name)}</b><small>تم تسجيل الإجابة</small><div class="v">${fmt(c.value)}</div>${c.diff!==undefined?`<div class="d">الفرق: ${fmt(c.diff)}</div>`:''}${extra}</div>`;
+
+function show(p){['connect','play','final'].forEach(x=>$('p-'+x).classList.toggle('on',x===p))}
+
+function render(s){
+  S=s; clearInterval(tick);
+  if(s.phase==='connect'){show('connect');return}
+  if(s.phase==='final'){
+    show('final'); $('sub').textContent=`المسابقة انتهت · ${s.total} جولة · ${s.ranking.length} لاعب`;
+    $('rank').innerHTML=s.ranking.map((p,i)=>`<div class="rk"><span class="n">${i+1}</span>${img(p.id,p.avatar)}<span class="nm">${esc(p.name)}</span><span class="w">🥇${p.wins[0]} 🥈${p.wins[1]} 🥉${p.wins[2]}</span><span class="pt">${p.points} نقطة</span></div>`).join('')||'لا يوجد لاعبون';
+    return;
+  }
+  show('play');
+  $('round').textContent=s.idx>=0?`الجولة ${String(s.idx+1).padStart(2,'0')} / ${s.total}`:`${s.total} جولة`;
+  $('qt').textContent=s.q?s.q.text:'جاهز للبدء';
+  $('qu').textContent=s.q?`الإجابة ${s.q.unit}`:'';
+  $('np').textContent=s.players; $('na').textContent=s.answers.length;
+  $('grid').innerHTML=s.answers.map(c=>cardHtml(c)).join('');
+  const r=s.result;
+  $('rev').innerHTML=r?`<div class="ans">الإجابة الصحيحة: ${fmt(r.correct)} ${esc(s.q.unit)}</div><div class="win">${r.winners.map((w,i)=>cardHtml(w,`<div class="v">${['🥇','🥈','🥉'][i]} +${w.points}</div>`)).join('')||'<div>لا توجد إجابات</div>'}</div>`:'';
+  const b=$('btnNext'); b.disabled=false;
+  if(s.phase==='idle') b.textContent='ابدأ السؤال الأول';
+  else if(s.phase==='open'){b.textContent='جارٍ استقبال الإجابات…';b.disabled=true}
+  else b.textContent=s.idx>=s.total-1?'النتائج النهائية':'السؤال التالي';
+  if(s.phase==='open'){
+    endLocal=Date.now()+s.remaining;
+    const t=()=>{$('timer').textContent=Math.ceil(Math.max(0,endLocal-Date.now())/1000)};
+    t(); tick=setInterval(t,100);
+  } else $('timer').textContent=s.phase==='idle'?s.seconds:0;
+}
+
+ws.onmessage=e=>{
+  const m=JSON.parse(e.data);
+  if(m.type==='state') render(m);
+  else if(m.type==='answer'){
+    if(S&&S.phase==='open'){
+      S.answers.push(m.card);
+      $('grid').insertAdjacentHTML('beforeend',cardHtml(m.card));
+      $('np').textContent=m.players; $('na').textContent=S.answers.length;
+    }
+  } else if(m.type==='avatar'){
+    document.querySelectorAll(`img[data-av="${CSS.escape(m.id)}"]`).forEach(i=>i.src=m.url);
+  } else if(m.type==='conn'){
+    $('msg').style.color=m.ok?'var(--ok)':'#ff7a7a'; $('msg').textContent=m.msg; $('btnConnect').disabled=false;
+  }
+};
+ws.onclose=()=>{$('msg').style.color='#ff7a7a';$('msg').textContent='انقطع الاتصال بالخادم'};
+
+$('btnConnect').onclick=()=>{$('btnConnect').disabled=true;$('msg').style.color='var(--mut)';$('msg').textContent='جارٍ الاتصال…';send({type:'connect',username:$('user').value})};
+$('btnDemo').onclick=()=>send({type:'demo'});
+$('btnNext').onclick=()=>send({type:'next'});
+$('btnNew').onclick=()=>send({type:'newgame'});
+$('btnCsv').onclick=()=>{
+  const q=v=>`"${String(v).replace(/"/g,'""')}"`;
+  const rows=[['الترتيب','الاسم','النقاط','المركز الأول','المركز الثاني','المركز الثالث'],...S.ranking.map((p,i)=>[i+1,p.name,p.points,...p.wins])];
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob(['\ufeff'+rows.map(r=>r.map(q).join(',')).join('\n')],{type:'text/csv'}));
+  a.download='results.csv'; a.click();
+};
+</script>
+</body>
+</html>
+ 
